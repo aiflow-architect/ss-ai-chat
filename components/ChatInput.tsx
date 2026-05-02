@@ -6,7 +6,11 @@ import type { Mode } from '@/lib/types'
 interface AttachedFile {
   type: 'image' | 'document'
   name: string
-  base64: string
+  // สำหรับรูป: ใช้ url + publicId (Cloudinary)
+  // สำหรับเอกสาร: ใช้ base64 เดิม
+  url?: string
+  publicId?: string
+  base64?: string
   mimeType: string
 }
 
@@ -19,6 +23,7 @@ interface Props {
 export default function ChatInput({ onSend, loading, mode }: Props) {
   const [text, setText] = useState('')
   const [attached, setAttached] = useState<AttachedFile | null>(null)
+  const [uploading, setUploading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -41,7 +46,7 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if ((!text.trim() && !attached) || loading) return
+    if ((!text.trim() && !attached) || loading || uploading) return
     onSend(text.trim(), attached || undefined)
     setText('')
     setAttached(null)
@@ -62,7 +67,7 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
     e.target.value = ''
   }
 
-  // แปลงไฟล์เป็น base64 (รูปภาพจะถูก resize/compress ก่อน)
+  // แปลงไฟล์ — รูปอัพขึ้น Cloudinary, เอกสารใช้ base64
   async function processFile(file: File) {
     const isImage = file.type.startsWith('image/')
     const isDoc = ['application/pdf', 'application/msword',
@@ -75,15 +80,33 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
     }
 
     if (isImage) {
-      // Resize & compress รูปก่อนส่ง เพื่อลด payload size ให้ต่ำกว่า Vercel 4.5MB limit
-      const base64 = await resizeImage(file, 800, 0.7)
-      setAttached({
-        type: 'image',
-        name: file.name,
-        base64,
-        mimeType: 'image/jpeg',
-      })
+      setUploading(true)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (!res.ok) throw new Error('Upload failed')
+        const { url, publicId } = await res.json() as { url: string; publicId: string }
+
+        setAttached({
+          type: 'image',
+          name: file.name,
+          url,
+          publicId,
+          mimeType: file.type,
+        })
+      } catch {
+        alert('อัพโหลดรูปไม่สำเร็จ กรุณาลองใหม่ครับ')
+      } finally {
+        setUploading(false)
+      }
     } else {
+      // เอกสาร: ใช้ base64 เดิม
       const reader = new FileReader()
       reader.onload = () => {
         const base64 = (reader.result as string).split(',')[1]
@@ -96,37 +119,6 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
       }
       reader.readAsDataURL(file)
     }
-  }
-
-  // Resize รูปให้ไม่เกิน maxSize px และ compress เป็น JPEG
-  function resizeImage(file: File, maxSize: number, quality: number): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const img = new Image()
-      const url = URL.createObjectURL(file)
-      img.onload = () => {
-        URL.revokeObjectURL(url)
-        let { width, height } = img
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = Math.round((height * maxSize) / width)
-            width = maxSize
-          } else {
-            width = Math.round((width * maxSize) / height)
-            height = maxSize
-          }
-        }
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('Canvas context unavailable'))
-        ctx.drawImage(img, 0, 0, width, height)
-        const dataUrl = canvas.toDataURL('image/jpeg', quality)
-        resolve(dataUrl.split(',')[1])
-      }
-      img.onerror = reject
-      img.src = url
-    })
   }
 
   // Paste รูปจาก clipboard
@@ -145,21 +137,25 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
   return (
     <div className="space-y-2">
       {/* Preview ไฟล์ที่แนบ */}
-      {attached && (
+      {(attached || uploading) && (
         <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
-          <span className="text-lg">{attached.type === 'image' ? '🖼️' : '📄'}</span>
-          <span className="text-sm text-blue-700 flex-1 truncate">{attached.name}</span>
-          <button
-            onClick={() => setAttached(null)}
-            className="text-blue-400 hover:text-red-500 text-lg leading-none"
-          >
-            ×
-          </button>
+          <span className="text-lg">{uploading ? '⏳' : attached?.type === 'image' ? '🖼️' : '📄'}</span>
+          <span className="text-sm text-blue-700 flex-1 truncate">
+            {uploading ? 'กำลังอัพโหลดรูป...' : attached?.name}
+          </span>
+          {!uploading && (
+            <button
+              onClick={() => setAttached(null)}
+              className="text-blue-400 hover:text-red-500 text-lg leading-none"
+            >
+              ×
+            </button>
+          )}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="flex gap-3 items-end">
-        {/* ปุ่มแนบไฟล์ (ทุกโหมด — artwork รับเฉพาะรูป) */}
+        {/* ปุ่มแนบไฟล์ */}
         <>
           <input
             ref={fileInputRef}
@@ -171,11 +167,13 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
+            disabled={loading || uploading}
             className="flex-shrink-0 w-12 h-[58px] border border-gray-300 rounded-2xl flex items-center justify-center text-xl text-gray-500 hover:bg-gray-100 hover:border-blue-400 transition-colors disabled:opacity-40"
             title={mode === 'artwork' ? 'แนบรูปอ้างอิงสไตล์' : 'แนบรูปหรือไฟล์'}
           >
-            📎
+            {uploading ? (
+              <span className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            ) : '📎'}
           </button>
         </>
 
@@ -192,7 +190,7 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
         />
         <button
           type="submit"
-          disabled={loading || (!text.trim() && !attached)}
+          disabled={loading || uploading || (!text.trim() && !attached)}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-2xl px-6 py-4 text-[17px] font-semibold transition-colors flex-shrink-0 h-[58px]"
         >
           {loading ? (

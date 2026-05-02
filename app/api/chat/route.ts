@@ -7,7 +7,10 @@ export const runtime = 'nodejs'
 
 interface AttachedFile {
   type: 'image' | 'document'
-  base64: string
+  // รูป: ใช้ url (Cloudinary) — ไม่ส่ง base64 ผ่าน Vercel อีกต่อไป
+  url?: string
+  // เอกสาร: ใช้ base64
+  base64?: string
   mimeType: string
   name: string
 }
@@ -90,7 +93,7 @@ function getProvider(model: string): string {
   return 'openai'
 }
 
-// OpenAI Vision format
+// OpenAI Vision format — ใช้ image_url จาก Cloudinary URL โดยตรง
 function buildOpenAIMessages(
   messages: { role: string; content: string }[],
   attachedFile?: AttachedFile
@@ -108,7 +111,7 @@ function buildOpenAIMessages(
     content: m.content,
   }))
 
-  if (attachedFile.type === 'image') {
+  if (attachedFile.type === 'image' && attachedFile.url) {
     return [
       ...rest,
       {
@@ -117,12 +120,12 @@ function buildOpenAIMessages(
           { type: 'text', text: lastMsg.content || 'วิเคราะห์ภาพนี้ให้หน่อยครับ' },
           {
             type: 'image_url',
-            image_url: { url: `data:${attachedFile.mimeType};base64,${attachedFile.base64}` },
+            image_url: { url: attachedFile.url },
           },
         ],
       },
     ]
-  } else {
+  } else if (attachedFile.type === 'document' && attachedFile.base64) {
     const docText = Buffer.from(attachedFile.base64, 'base64').toString('utf-8').slice(0, 8000)
     return [
       ...rest,
@@ -132,9 +135,14 @@ function buildOpenAIMessages(
       },
     ]
   }
+
+  return messages.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }))
 }
 
-// Claude Vision format
+// Claude Vision format — ใช้ URL แทน base64
 function buildClaudeMessages(
   messages: { role: string; content: string }[],
   attachedFile?: AttachedFile
@@ -152,7 +160,7 @@ function buildClaudeMessages(
     content: m.content,
   }))
 
-  if (attachedFile.type === 'image') {
+  if (attachedFile.type === 'image' && attachedFile.url) {
     return [
       ...rest,
       {
@@ -161,16 +169,15 @@ function buildClaudeMessages(
           {
             type: 'image',
             source: {
-              type: 'base64',
-              media_type: attachedFile.mimeType,
-              data: attachedFile.base64,
+              type: 'url',
+              url: attachedFile.url,
             },
           },
           { type: 'text', text: lastMsg.content || 'วิเคราะห์ภาพนี้ให้หน่อยครับ' },
         ],
       },
     ]
-  } else {
+  } else if (attachedFile.type === 'document' && attachedFile.base64) {
     const docText = Buffer.from(attachedFile.base64, 'base64').toString('utf-8').slice(0, 8000)
     return [
       ...rest,
@@ -180,9 +187,14 @@ function buildClaudeMessages(
       },
     ]
   }
+
+  return messages.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }))
 }
 
-// Gemini — ใส่ไฟล์เป็น text (Gemini Vision ต้องใช้ SDK แยก)
+// Gemini — ใช้ URL แทน base64
 function buildTextMessages(
   messages: { role: string; content: string }[],
   attachedFile?: AttachedFile
@@ -200,16 +212,15 @@ function buildTextMessages(
     content: m.content,
   }))
 
-  if (attachedFile.type === 'image') {
-    // Gemini ใช้ inline data
+  if (attachedFile.type === 'image' && attachedFile.url) {
     return [
       ...rest,
       {
         role: 'user' as const,
-        content: `[แนบรูปภาพ: ${attachedFile.name}]\n${lastMsg.content || 'วิเคราะห์ภาพนี้ให้หน่อยครับ'}`,
+        content: `[แนบรูปภาพ: ${attachedFile.url}]\n${lastMsg.content || 'วิเคราะห์ภาพนี้ให้หน่อยครับ'}`,
       },
     ]
-  } else {
+  } else if (attachedFile.type === 'document' && attachedFile.base64) {
     const docText = Buffer.from(attachedFile.base64, 'base64').toString('utf-8').slice(0, 8000)
     return [
       ...rest,
@@ -219,4 +230,9 @@ function buildTextMessages(
       },
     ]
   }
+
+  return messages.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }))
 }

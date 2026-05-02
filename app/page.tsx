@@ -13,7 +13,11 @@ import type { Mode, AIModel, Message, Conversation } from '@/lib/types'
 interface AttachedFile {
   type: 'image' | 'document'
   name: string
-  base64: string
+  // รูป: ใช้ url + publicId (Cloudinary)
+  url?: string
+  publicId?: string
+  // เอกสาร: ใช้ base64
+  base64?: string
   mimeType: string
 }
 
@@ -86,7 +90,7 @@ export default function HomePage() {
       role: 'user',
       content: text || (attachedFile?.type === 'image' ? '🖼️ [แนบรูปภาพ]' : `📄 [${attachedFile?.name}]`),
       imageUrl: attachedFile?.type === 'image'
-        ? `data:${attachedFile.mimeType};base64,${attachedFile.base64}`
+        ? attachedFile.url  // ใช้ Cloudinary URL โดยตรง
         : undefined,
       createdAt: new Date(),
     }
@@ -121,6 +125,14 @@ export default function HomePage() {
               visionText += decoder.decode(value)
             }
             finalPrompt = visionText.trim() || text
+          }
+          // ลบรูปจาก Cloudinary หลังใช้งานเสร็จ
+          if (attachedFile.publicId) {
+            fetch('/api/upload', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ publicId: attachedFile.publicId }),
+            }).catch(() => {})
           }
         }
 
@@ -161,15 +173,18 @@ export default function HomePage() {
     setMessages([...newMessages, aiMsg])
 
     try {
-      // ส่ง messages ไป API (ไม่รวม base64 ของ messages เก่า เพื่อประหยัด bandwidth)
-      // เมื่อมีรูปแนบ ตัด history เหลือแค่ 6 messages ล่าสุด เพื่อไม่ให้ payload เกิน Vercel 4.5MB limit
-      const historyMessages = attachedFile
-        ? newMessages.slice(-6)
-        : newMessages
-      const apiMessages = historyMessages.map((m) => ({
+      // ส่ง messages ไป API — ใช้ URL แทน base64 สำหรับรูป
+      const apiMessages = newMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }))
+
+      // ส่งเฉพาะ url + publicId สำหรับรูป (ไม่ส่ง base64 เลย)
+      const apiAttachedFile = attachedFile
+        ? attachedFile.type === 'image'
+          ? { type: 'image', name: attachedFile.name, url: attachedFile.url, mimeType: attachedFile.mimeType }
+          : { type: 'document', name: attachedFile.name, base64: attachedFile.base64, mimeType: attachedFile.mimeType }
+        : null
 
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -178,7 +193,7 @@ export default function HomePage() {
           messages: apiMessages,
           model,
           mode,
-          attachedFile: attachedFile || null,
+          attachedFile: apiAttachedFile,
         }),
       })
 
@@ -198,6 +213,15 @@ export default function HomePage() {
           updated[updated.length - 1] = { ...aiMsg, content: fullText }
           return updated
         })
+      }
+
+      // ลบรูปจาก Cloudinary หลัง AI ตอบกลับเสร็จ
+      if (attachedFile?.type === 'image' && attachedFile.publicId) {
+        fetch('/api/upload', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicId: attachedFile.publicId }),
+        }).catch(() => {})
       }
 
       const finalMessages = [
