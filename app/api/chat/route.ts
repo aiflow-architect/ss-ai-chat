@@ -3,6 +3,8 @@ import { auth } from '@/lib/auth'
 import { MODE_SYSTEM_PROMPTS } from '@/lib/types'
 import type { Mode } from '@/lib/types'
 
+export const runtime = 'nodejs'
+
 interface AttachedFile {
   type: 'image' | 'document'
   base64: string
