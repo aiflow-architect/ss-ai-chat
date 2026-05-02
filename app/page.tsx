@@ -162,7 +162,11 @@ export default function HomePage() {
 
     try {
       // ส่ง messages ไป API (ไม่รวม base64 ของ messages เก่า เพื่อประหยัด bandwidth)
-      const apiMessages = newMessages.map((m) => ({
+      // เมื่อมีรูปแนบ ตัด history เหลือแค่ 6 messages ล่าสุด เพื่อไม่ให้ payload เกิน Vercel 4.5MB limit
+      const historyMessages = attachedFile
+        ? newMessages.slice(-6)
+        : newMessages
+      const apiMessages = historyMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }))

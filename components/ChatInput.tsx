@@ -75,8 +75,8 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
     }
 
     if (isImage) {
-      // Resize & compress รูปก่อนส่ง เพื่อลด payload size
-      const base64 = await resizeImage(file, 1024, 0.85)
+      // Resize & compress รูปก่อนส่ง เพื่อลด payload size ให้ต่ำกว่า Vercel 4.5MB limit
+      const base64 = await resizeImage(file, 800, 0.7)
       setAttached({
         type: 'image',
         name: file.name,
