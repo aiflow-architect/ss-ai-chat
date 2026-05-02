@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/mongodb'
 import bcrypt from 'bcryptjs'
 
+export const runtime = 'nodejs'
+
 // API นี้ใช้สร้าง user ครั้งแรก - ควรลบออกหลัง setup เสร็จ
 // เรียกด้วย POST /api/seed พร้อม body: { username, password, adminKey }
 export async function POST(req: NextRequest) {

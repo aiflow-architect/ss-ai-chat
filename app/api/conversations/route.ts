@@ -4,6 +4,8 @@ import { getDb } from '@/lib/mongodb'
 import { ObjectId } from 'mongodb'
 import type { Conversation } from '@/lib/types'
 
+export const runtime = 'nodejs'
+
 // GET - ดึงรายการ conversations ของ user
 export async function GET() {
   const session = await auth()

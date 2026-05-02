@@ -3,6 +3,8 @@ import { auth } from '@/lib/auth'
 import { getDb } from '@/lib/mongodb'
 import { ObjectId } from 'mongodb'
 
+export const runtime = 'nodejs'
+
 // GET - ดึง conversation เดียวพร้อม messages
 export async function GET(
   _req: NextRequest,

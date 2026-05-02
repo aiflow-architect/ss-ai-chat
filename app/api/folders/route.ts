@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { getDb } from '@/lib/mongodb'
 import { ObjectId } from 'mongodb'
+
+export const runtime = 'nodejs'
 import type { Folder } from '@/lib/types'
 
 // GET - ดึง folders ทั้งหมดของ user
