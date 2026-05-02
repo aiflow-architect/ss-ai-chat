@@ -62,7 +62,7 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
     e.target.value = ''
   }
 
-  // แปลงไฟล์เป็น base64
+  // แปลงไฟล์เป็น base64 (รูปภาพจะถูก resize/compress ก่อน)
   async function processFile(file: File) {
     const isImage = file.type.startsWith('image/')
     const isDoc = ['application/pdf', 'application/msword',
@@ -74,17 +74,59 @@ export default function ChatInput({ onSend, loading, mode }: Props) {
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(',')[1]
+    if (isImage) {
+      // Resize & compress รูปก่อนส่ง เพื่อลด payload size
+      const base64 = await resizeImage(file, 1024, 0.85)
       setAttached({
-        type: isImage ? 'image' : 'document',
+        type: 'image',
         name: file.name,
         base64,
-        mimeType: file.type,
+        mimeType: 'image/jpeg',
       })
+    } else {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1]
+        setAttached({
+          type: 'document',
+          name: file.name,
+          base64,
+          mimeType: file.type,
+        })
+      }
+      reader.readAsDataURL(file)
     }
-    reader.readAsDataURL(file)
+  }
+
+  // Resize รูปให้ไม่เกิน maxSize px และ compress เป็น JPEG
+  function resizeImage(file: File, maxSize: number, quality: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        let { width, height } = img
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = Math.round((height * maxSize) / width)
+            width = maxSize
+          } else {
+            width = Math.round((width * maxSize) / height)
+            height = maxSize
+          }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('Canvas context unavailable'))
+        ctx.drawImage(img, 0, 0, width, height)
+        const dataUrl = canvas.toDataURL('image/jpeg', quality)
+        resolve(dataUrl.split(',')[1])
+      }
+      img.onerror = reject
+      img.src = url
+    })
   }
 
   // Paste รูปจาก clipboard
